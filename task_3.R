@@ -104,16 +104,27 @@ dose_80 <- getDose(80)
 dose_50
 dose_80
 
-# Plot data + fitted line
+# Find min/max for axes so lines fit
+x_min <- min(dose_mg)
+x_max <- max(c(dose_mg, dose_50, dose_80))  # extend to include crossing points
+y_min <- min(GE_content)
+y_max <- max(c(GE_content, 80))             # extend to include 80% line
+
 plot(dose_mg, GE_content,
-     xlab = "Dose (mg)",
+     xlab = "Dose [mg]",
      ylab = "Gastric retention (%)",
-     main = "Dose–response (linear fit)")
+     main = "Dose–response (linear fit)",
+     xlim = c(x_min, x_max),
+     ylim = c(y_min, y_max))
 abline(m, col = "red", lwd = 2)
 
 # Mark the 50% and 80% target lines
 abline(h = 50, col = "blue", lty = 2)
 abline(h = 80, col = "green", lty = 2)
+
+# Mark intersection points
+points(dose_50, 50, pch = 19, col = "blue")
+points(dose_80, 80, pch = 19, col = "green")
 
 # ANOVA
 #anova <- aov(GE_content ~ dose_mg, data = data)
