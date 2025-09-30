@@ -35,6 +35,6 @@ curve(predict(fit, newdata = data.frame(x = x)), add = TRUE, col = "red")
 
 prediction = predict(fit, newdata = data.frame(x = x))
 
-# Get the half life
+# Get the half life (still not sure how to do it)
 prediction
 
