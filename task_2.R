@@ -39,4 +39,7 @@ prediction = predict(fit, newdata = data.frame(x = x))
 # Get the half life (still not sure how to do it)
 prediction 
 
-# Plot residual error and assess model performance 
+# Plot residual error (RMSE -> root mean square error) and assess model performance 
+
+
+# Add other models and compare fits
