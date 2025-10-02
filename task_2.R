@@ -33,7 +33,7 @@ start_vals
 # Fit the model using nls()
 fit <- nls(y ~ C0 * exp(-lambda * x), data = selected_columns, start = start_vals)
 summary(fit)
-fit
+
 
 # Draw curve
 plot(x, y, main = "Exponential Decay Fit for Gastric Content", pch = 16, xlab = "Time (minutes)", ylab = "Volume of Gastric Content (%)")
