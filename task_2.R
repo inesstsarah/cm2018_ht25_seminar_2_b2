@@ -132,4 +132,5 @@ fitted_fun <- function(t) y0 * exp(-k * t)
 auc <- integrate(fitted_fun, lower = 0, upper = 60)$value
 print(auc)
 
-# 
+
+# Compare the fasted and non-fasted plots
