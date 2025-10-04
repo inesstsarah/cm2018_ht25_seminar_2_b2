@@ -481,15 +481,19 @@ if (length(top4) >= 4) {
   for (v in top4) print(plot_scatter(data, v))
 }
 
+
+
 # ================================================================
-# PART C — GROUP DIFFERENCES (Boxplots)
+# PART C — GROUP DIFFERENCES (Boxplots: GE ~ Sex/Metformin/Complications)
 # ================================================================
+
+cat("\n--- Boxplots & group comparisons ---\n")
+
 group_vars <- c("Sex", "Metformin", "DiabetesComplications")
-save_dir_box <- NULL  # set to "plots_box" if you want to save PNGs
 
 tests_all <- purrr::map_dfr(group_vars, function(gv) {
   if (!gv %in% names(data)) { message("'", gv, "' not found."); return(NULL) }
-  out <- plot_group_boxes(data, gv, y = "GE", labels = label_map, save_dir = save_dir_box)
+  out <- plot_group_boxes(data, gv, y = "GE", labels = label_map)
   if (is.null(out)) return(NULL)
   cat("\n-- Tests for", gv, "--\n"); print(out$tests); cat("\n")
   out$tests
@@ -497,11 +501,12 @@ tests_all <- purrr::map_dfr(group_vars, function(gv) {
 
 if (nrow(tests_all) > 0) {
   tests_all <- tests_all %>%
-    dplyr::group_by(test) %>% dplyr::mutate(p.adj = p.adjust(p.value, method = "BH")) %>%
-    dplyr::ungroup()
+    group_by(test) %>%
+    mutate(p.adj = p.adjust(p.value, method = "BH")) %>%
+    ungroup()
   cat("\n=== Summary across splits (BH-FDR) ===\n"); print(tests_all, n = Inf)
 } else {
-  message("No tests to show.")
+  message("No group tests available.")
 }
 
 # ================================================================
@@ -740,6 +745,7 @@ if (length(av_terms)) {
 }
 
 # ============================== END TASK 1 =============================
+
 
 
 
