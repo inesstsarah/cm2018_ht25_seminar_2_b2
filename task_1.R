@@ -19,29 +19,25 @@ library(car)
 library(glmnet)      
 library(patchwork)  
 library(visreg)    
+library(purrr)
 
 theme_set(theme_minimal(base_size = 12))
 
-data <- read_csv("Data_T1.csv", show_col_types = FALSE)
+data <- read_csv("/Users/claraazzano/Desktop/Data_T1.csv", show_col_types = FALSE)
 
 # ================================================================
 # VARIABLES & LABELS
 # ================================================================
 
-# Continuous variables (for histograms + numeric summary)
 cont_vars <- c(
   "GE","Age","Height","BW","BMI",
   "GlucoseFasting","InsulinFasting","HbA1c","MatsudaIdx","HOMAB",
   "Gastrin","CCK","Ghrelin","Amylin","Glucagon","GLP1","PYY"
 )
 
-# Variables that often look better on a log scale in EDA (skewed, right-tailed)
 log_suggest <- c("InsulinFasting","MatsudaIdx","Ghrelin","Amylin","GLP1")
-
-# Binary indicators to summarise as counts/percentages
 binary_vars <- c("Sex","Metformin","DiabetesComplications")
 
-# Human-readable units for axis labels (EDA only; modelling uses raw scale)
 units_map <- c(
   GE = "min", Age = "y", Height = "cm", BW = "kg", BMI = "kg/m^2",
   GlucoseFasting = "mmol/L", InsulinFasting = "mU/L", HbA1c = "%",
@@ -49,13 +45,17 @@ units_map <- c(
   Glucagon = "pmol/L", GLP1 = "pmol/L", PYY = "ng/L", MatsudaIdx = "", HOMAB = ""
 )
 
-# Helper: return unit string for a variable (NULL if none)
+label_map <- list(
+  Sex = c("Female","Male"),
+  Metformin = c("No","Yes"),
+  DiabetesComplications = c("No","Yes")
+)
+
 get_units <- function(var) {
   nm <- as.character(var)
   if (!is.null(names(units_map)) && nm %in% names(units_map)) units_map[[nm]] else NULL
 }
 
-# Coerce continuous columns to numeric (guard against read issues where numbers arrive as character)
 data <- data %>%
   mutate(across(all_of(cont_vars), ~ suppressWarnings(as.numeric(.))))
 
@@ -63,7 +63,6 @@ data <- data %>%
 # SHARED HELPERS
 # ================================================================
 
-# Freedman–Diaconis binwidth (robust bin choice). Falls back to ~30 bins if FD fails.
 fd_binwidth <- function(x) {
   x <- x[is.finite(x)]
   if (length(x) < 2) return(NA_real_)
@@ -75,7 +74,6 @@ fd_binwidth <- function(x) {
   bw
 }
 
-# Simple skewness flag via standardized third moment; avoids fragile skew() dependencies.
 is_skewed <- function(x, thresh = 1) {
   x <- x[is.finite(x)]
   if (length(x) < 3 || sd(x) == 0) return(FALSE)
@@ -83,7 +81,6 @@ is_skewed <- function(x, thresh = 1) {
   abs(mean(z^3)) > thresh
 }
 
-# Log10 transform tolerant of zeros/negatives by adding an offset (reported later).
 safe_log10 <- function(x, eps = 1e-6) {
   x <- as.numeric(x)
   needs_offset <- any(x <= 0, na.rm = TRUE)
@@ -93,18 +90,90 @@ safe_log10 <- function(x, eps = 1e-6) {
   y
 }
 
-# Concise axis label with optional units and "(log10)" badge
 axis_label <- function(name, log = FALSE, units = NULL) {
   paste0(name,
          if (!is.null(units) && nzchar(units)) paste0(" [", units, "]") else "",
          if (log) " (log10)" else "")
 }
 
+as_pretty_factor <- function(x, var, labels = label_map) {
+  xn <- x[!is.na(x)]
+  if (is.numeric(x) && dplyr::n_distinct(xn) == 2) {
+    lv <- sort(unique(xn))
+    f  <- factor(x, levels = lv)
+    if (!is.null(labels[[var]]) && length(labels[[var]]) == 2) {
+      levels(f) <- labels[[var]]
+    } else if (all(lv %in% c(0,1))) {
+      levels(f) <- c("No","Yes")
+    }
+    return(f)
+  }
+  if (is.character(x) || is.factor(x)) {
+    f <- forcats::fct_drop(factor(x))
+    if (nlevels(f) == 2) return(f)
+  }
+  NULL
+}
+
+cohen_d <- function(y, g) {
+  g <- droplevels(g); if (nlevels(g) != 2) return(NA_real_)
+  y1 <- y[g == levels(g)[1]]; y2 <- y[g == levels(g)[2]]
+  n1 <- sum(is.finite(y1)); n2 <- sum(is.finite(y2))
+  s1 <- var(y1, na.rm = TRUE); s2 <- var(y2, na.rm = TRUE)
+  sp <- sqrt(((n1 - 1)*s1 + (n2 - 1)*s2) / (n1 + n2 - 2))
+  (mean(y2, na.rm = TRUE) - mean(y1, na.rm = TRUE)) / sp
+}
+
+plot_group_boxes <- function(df, group_var, y = "GE",
+                             labels = label_map,
+                             save_dir = NULL, width = 6.5, height = 4.5, dpi = 300) {
+  stopifnot(group_var %in% names(df), y %in% names(df))
+  g <- as_pretty_factor(df[[group_var]], group_var, labels)
+  if (is.null(g)) { message("Skipping '", group_var, "': not 2-level."); return(NULL) }
+  
+  d <- df %>% dplyr::transmute(group = g, y = !!rlang::sym(y)) %>% tidyr::drop_na()
+  if (nrow(d) == 0 || nlevels(d$group) < 2) {
+    message("Skipping '", group_var, "': insufficient data after drop_na."); return(NULL)
+  }
+  
+  n_tab <- d %>% dplyr::count(group, name = "n")
+  subtitle_txt <- paste(paste0(n_tab$group, ": n=", n_tab$n), collapse = "   |   ")
+  
+  p <- ggplot(d, aes(group, y)) +
+    geom_boxplot(outlier.alpha = 0.35, width = 0.55) +
+    geom_jitter(width = 0.08, alpha = 0.35, size = 1) +
+    labs(title = paste("GE by", group_var), subtitle = subtitle_txt,
+         x = group_var, y = "GE [min]") +
+    theme_minimal(base_size = 12) +
+    theme(panel.grid.minor = element_blank())
+  
+  print(p)
+  
+  if (!is.null(save_dir)) {
+    if (!dir.exists(save_dir)) dir.create(save_dir, recursive = TRUE)
+    ggsave(file.path(save_dir, paste0("box_GE_by_", group_var, ".png")),
+           plot = p, width = width, height = height, dpi = dpi)
+  }
+  
+  t_out <- t.test(y ~ group, data = d, var.equal = FALSE)
+  w_out <- wilcox.test(y ~ group, data = d, exact = FALSE)
+  d_out <- cohen_d(d$y, d$group)
+  
+  tests <- dplyr::bind_rows(
+    broom::tidy(t_out) %>% dplyr::mutate(test = "Welch t-test", effect = d_out),
+    broom::tidy(w_out) %>% dplyr::mutate(test = "Wilcoxon rank-sum", effect = NA_real_)
+  ) %>%
+    dplyr::mutate(group_var = group_var) %>%
+    dplyr::select(group_var, test, estimate, estimate1, estimate2,
+                  statistic, parameter, p.value, conf.low, conf.high, effect, method)
+  
+  list(plot = p, tests = tests)
+}
+
 # ================================================================
 # PART A — EXPLORATORY VISUALISATIONS
 # ================================================================
 
-# Histogram factory with optional safe log10 and auto binwidth
 plot_hist <- function(df, var, bins = NULL, log_x = NULL,
                       units = NULL, title = NULL, annotate_n = TRUE) {
   v <- enquo(var); vname <- as_name(v)
@@ -226,7 +295,6 @@ cat("\n--- Missingness by variable ---\n"); print(missing_tbl, n = Inf)
 # ================================================================
 # PART B — CORRELATIONS
 # ================================================================
-
 # Variable blocks for structured correlation checks vs GE
 vars_hormones <- c("Gastrin","CCK","Ghrelin","Amylin","Glucagon","GLP1","PYY")
 vars_demo     <- c("Age","Height","BW","BMI")
@@ -414,7 +482,30 @@ if (length(top4) >= 4) {
 }
 
 # ================================================================
-# PART C — MODELLING GE
+# PART C — GROUP DIFFERENCES (Boxplots)
+# ================================================================
+group_vars <- c("Sex", "Metformin", "DiabetesComplications")
+save_dir_box <- NULL  # set to "plots_box" if you want to save PNGs
+
+tests_all <- purrr::map_dfr(group_vars, function(gv) {
+  if (!gv %in% names(data)) { message("'", gv, "' not found."); return(NULL) }
+  out <- plot_group_boxes(data, gv, y = "GE", labels = label_map, save_dir = save_dir_box)
+  if (is.null(out)) return(NULL)
+  cat("\n-- Tests for", gv, "--\n"); print(out$tests); cat("\n")
+  out$tests
+})
+
+if (nrow(tests_all) > 0) {
+  tests_all <- tests_all %>%
+    dplyr::group_by(test) %>% dplyr::mutate(p.adj = p.adjust(p.value, method = "BH")) %>%
+    dplyr::ungroup()
+  cat("\n=== Summary across splits (BH-FDR) ===\n"); print(tests_all, n = Inf)
+} else {
+  message("No tests to show.")
+}
+
+# ================================================================
+# PART D — MODELLING GE
 # ================================================================
 # Strategy:
 #   1) Baseline clinical covariates (M0).
