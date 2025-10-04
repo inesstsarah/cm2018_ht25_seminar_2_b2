@@ -1,42 +1,47 @@
 # ================================================================
-# TASK 1 - SET UP
+# TASK 1 — SETUP
 # ================================================================
-# Load all packages used across EDA, correlations, and modelling.
+# Goal: Explore and model gastric emptying half-life (GE) in T2DM.
 
-library(ggplot2)   
-library(dplyr)  
-library(readr)      
-library(tidyr)       
+# --- Libraries used across EDA, correlations, and modelling -----
+library(ggplot2)    
+library(dplyr)       
+library(readr)       
+library(tidyr)     
 library(forcats)     
-library(scales)
-library(rlang)       
-library(broom)     
-library(corrplot) 
+library(scales)     
+library(rlang)   
+library(broom)    
+library(corrplot)    
 library(sandwich)    
-library(lmtest)  
-library(car)         
-library(glmnet)
-library(patchwork)
-library(visreg)
+library(lmtest)   
+library(car)     
+library(glmnet)      
+library(patchwork)  
+library(visreg)    
+
 theme_set(theme_minimal(base_size = 12))
 
 data <- read_csv("Data_T1.csv", show_col_types = FALSE)
 
-# Variables and units ---------------------------------------------
-# Continuous variables to histogram + summarise
+# ================================================================
+# VARIABLES & LABELS
+# ================================================================
+
+# Continuous variables (for histograms + numeric summary)
 cont_vars <- c(
   "GE","Age","Height","BW","BMI",
   "GlucoseFasting","InsulinFasting","HbA1c","MatsudaIdx","HOMAB",
   "Gastrin","CCK","Ghrelin","Amylin","Glucagon","GLP1","PYY"
 )
 
-# Variables that often benefit from log-scale inspection
+# Variables that often look better on a log scale in EDA (skewed, right-tailed)
 log_suggest <- c("InsulinFasting","MatsudaIdx","Ghrelin","Amylin","GLP1")
 
 # Binary indicators to summarise as counts/percentages
 binary_vars <- c("Sex","Metformin","DiabetesComplications")
 
-# Human-readable units for axis labels (EDA only; analysis uses raw data)
+# Human-readable units for axis labels (EDA only; modelling uses raw scale)
 units_map <- c(
   GE = "min", Age = "y", Height = "cm", BW = "kg", BMI = "kg/m^2",
   GlucoseFasting = "mmol/L", InsulinFasting = "mU/L", HbA1c = "%",
@@ -44,19 +49,21 @@ units_map <- c(
   Glucagon = "pmol/L", GLP1 = "pmol/L", PYY = "ng/L", MatsudaIdx = "", HOMAB = ""
 )
 
-# Helper to get units by variable name (returns NULL if not present)
+# Helper: return unit string for a variable (NULL if none)
 get_units <- function(var) {
   nm <- as.character(var)
   if (!is.null(names(units_map)) && nm %in% names(units_map)) units_map[[nm]] else NULL
 }
 
-# Make sure continuous columns are numeric ------------------------
-# This guards against any read issues where numeric columns came in as character.
+# Coerce continuous columns to numeric (guard against read issues where numbers arrive as character)
 data <- data %>%
   mutate(across(all_of(cont_vars), ~ suppressWarnings(as.numeric(.))))
 
-# Shared helpers --------------------------------------------------
-# Freedman–Diaconis binwidth (fallback to ~30 bins if FD fails)
+# ================================================================
+# SHARED HELPERS
+# ================================================================
+
+# Freedman–Diaconis binwidth (robust bin choice). Falls back to ~30 bins if FD fails.
 fd_binwidth <- function(x) {
   x <- x[is.finite(x)]
   if (length(x) < 2) return(NA_real_)
@@ -68,16 +75,15 @@ fd_binwidth <- function(x) {
   bw
 }
 
-# Simple skew flag using 3rd standardized moment
+# Simple skewness flag via standardized third moment; avoids fragile skew() dependencies.
 is_skewed <- function(x, thresh = 1) {
   x <- x[is.finite(x)]
   if (length(x) < 3 || sd(x) == 0) return(FALSE)
-  z  <- (x - mean(x)) / sd(x)
+  z <- (x - mean(x)) / sd(x)
   abs(mean(z^3)) > thresh
 }
 
-# Log10 transform that is safe for zeros/negatives by adding an offset.
-# The chosen offset is attached as an attribute for later annotation.
+# Log10 transform tolerant of zeros/negatives by adding an offset (reported later).
 safe_log10 <- function(x, eps = 1e-6) {
   x <- as.numeric(x)
   needs_offset <- any(x <= 0, na.rm = TRUE)
@@ -87,7 +93,7 @@ safe_log10 <- function(x, eps = 1e-6) {
   y
 }
 
-# Axis label builder that appends units and "(log10)" when appropriate.
+# Concise axis label with optional units and "(log10)" badge
 axis_label <- function(name, log = FALSE, units = NULL) {
   paste0(name,
          if (!is.null(units) && nzchar(units)) paste0(" [", units, "]") else "",
@@ -95,25 +101,24 @@ axis_label <- function(name, log = FALSE, units = NULL) {
 }
 
 # ================================================================
-# PART A — VISUALISATIONS
+# PART A — EXPLORATORY VISUALISATIONS
 # ================================================================
 
-# Histograms ------------------------------------------------------
-# Generic histogram with optional safe log10 transform and automatic binwidth.
+# Histogram factory with optional safe log10 and auto binwidth
 plot_hist <- function(df, var, bins = NULL, log_x = NULL,
                       units = NULL, title = NULL, annotate_n = TRUE) {
   v <- enquo(var); vname <- as_name(v)
   x <- df %>% pull(!!v)
   
-  # If user didn't specify log_x, auto-enable when data are positive & skewed.
+  # Auto-log if not specified: only if all positive and skewed
   if (is.null(log_x)) log_x <- all(x > 0, na.rm = TRUE) && is_skewed(x)
   
-  # Prepare the plotting vector (possibly log-transformed with offset)
+  # Prepare plotting vector (keeps chosen offset so we can annotate it)
   x_plot <- if (log_x) safe_log10(x) else x
   off <- if (log_x) attr(x_plot, "offset") else 0
   df_plot <- tibble(x_plot = as.numeric(x_plot))
   
-  # Use FD binwidth unless a fixed number of bins is supplied
+  # Bin choice: FD by default, or user-specified bin count
   if (is.null(bins)) {
     bw <- fd_binwidth(df_plot$x_plot)
     p <- ggplot(df_plot, aes(x = x_plot)) +
@@ -123,7 +128,7 @@ plot_hist <- function(df, var, bins = NULL, log_x = NULL,
       geom_histogram(bins = bins, fill = "#6A9AE2", color = "white", na.rm = TRUE)
   }
   
-  # Titles + x/y labels. If we logged, append "(log10)" to x label.
+  # Labels (append units and “(log10)” as needed)
   p <- p + labs(
     title = if (is.null(title)) vname else title,
     x = axis_label(vname, log = isTRUE(log_x),
@@ -131,7 +136,7 @@ plot_hist <- function(df, var, bins = NULL, log_x = NULL,
     y = "Count"
   ) + theme(panel.grid.minor = element_blank())
   
-  # Annotate with sample size and NAs; if we added an offset, note that too.
+  # Annotate with n and missingness; if offset was used, display it explicitly.
   if (annotate_n) {
     n_use <- sum(is.finite(df_plot$x_plot))
     miss  <- sum(!is.finite(df_plot$x_plot))
@@ -142,15 +147,14 @@ plot_hist <- function(df, var, bins = NULL, log_x = NULL,
   p
 }
 
-# Print all histograms (to the Plots pane)
+# Print histograms for all continuous variables (to Plots)
 invisible(lapply(cont_vars, function(v) {
   print(plot_hist(data, !!sym(v),
                   log_x = if (v %in% log_suggest) TRUE else NULL,
                   units = get_units(v)))
 }))
 
-# Binary summaries ------------------------------------------------
-# Neat "n (%)" tables for 0/1 variables (with optional pretty labels)
+# ---- Binary summaries: neat "n (%)" tables ---------------------
 binary_summary <- function(df, vars, labels = NULL) {
   out <- lapply(vars, function(v) {
     x <- df[[v]]
@@ -172,12 +176,12 @@ binary_summary <- function(df, vars, labels = NULL) {
   bind_rows(out) %>% mutate(pct_label = percent(pct, accuracy = 0.1))
 }
 
-# Map 0/1 to more readable labels for presentation
+# Presentable labels for 0/1 indicators
 label_map <- list(Sex = c("Female","Male"),
                   Metformin = c("No","Yes"),
                   DiabetesComplications = c("No","Yes"))
 
-# Print long table
+# Print long and wide forms
 bin_tbl <- binary_summary(data, binary_vars, labels = label_map)
 cat("\n--- Binary variables: counts and percentages ---\n")
 bin_tbl %>%
@@ -185,7 +189,6 @@ bin_tbl %>%
   mutate(`n (%)` = paste0(n, " (", pct_label, ")")) %>%
   select(Variable, Label, `n (%)`) %>% print(n = Inf)
 
-# Print wide table (one column per level)
 cat("\n--- Binary variables (wide view) ---\n")
 bin_tbl %>%
   mutate(`n (%)` = paste0(n, " (", pct_label, ")")) %>%
@@ -193,8 +196,8 @@ bin_tbl %>%
   pivot_wider(names_from = Label, values_from = `n (%)`) %>%
   print(n = Inf)
 
-# Descriptives & missingness -------------------------------
-# Basic descriptive stats for all continuous variables
+# ---- Descriptives and missingness ------------------------------
+# Summarise: n, mean, sd, median, IQR, min, max (rounded for readability)
 desc <- data %>%
   summarise(across(all_of(cont_vars),
                    list(
@@ -213,7 +216,7 @@ desc <- data %>%
   mutate(across(c(mean, sd, median, IQR, min, max), ~round(., 2)))
 cat("\n--- Descriptive stats (continuous) ---\n"); print(desc, n = Inf)
 
-# Count NAs per variable (descending)
+# Missingness: how many NAs per variable (descending)
 missing_tbl <- data %>%
   summarise(across(everything(), ~sum(is.na(.)))) %>%
   pivot_longer(everything(), names_to="variable", values_to="n_missing") %>%
@@ -224,31 +227,30 @@ cat("\n--- Missingness by variable ---\n"); print(missing_tbl, n = Inf)
 # PART B — CORRELATIONS
 # ================================================================
 
-# Define groups of variables to analyse against GE
+# Variable blocks for structured correlation checks vs GE
 vars_hormones <- c("Gastrin","CCK","Ghrelin","Amylin","Glucagon","GLP1","PYY")
 vars_demo     <- c("Age","Height","BW","BMI")
 vars_gly      <- c("GlucoseFasting","HbA1c")
 vars_insulin  <- c("InsulinFasting","MatsudaIdx","HOMAB")
 vars_outcome  <- "GE"
 
-# Variables to log10 for correlation EDA due to skew
-log_skewed    <- c("InsulinFasting","MatsudaIdx","Ghrelin","Amylin","GLP1")
+# EDA-only log10 transforms to tame skew (keeps interpretation on a monotone scale)
+log_skewed <- c("InsulinFasting","MatsudaIdx","Ghrelin","Amylin","GLP1")
 
-# Prepare a numeric-only, zero-variance-free, optionally log-transformed frame
+# Prepare a numeric-only, zero-variance-free, optionally log-transformed data frame
 make_pairs_df <- function(df, keep, log10_vars = character()) {
   keep <- intersect(keep, names(df))
   d <- df[keep]
-  d <- d[vapply(d, is.numeric, logical(1L))]
+  d <- d[vapply(d, is.numeric, logical(1L))]         # numeric only
   for (v in intersect(log10_vars, names(d))) d[[v]] <- safe_log10(d[[v]])
   if (ncol(d)) {
     ok <- vapply(d, function(z) sd(z, na.rm = TRUE) > 0, logical(1L))
-    d <- d[, ok, drop = FALSE]
+    d <- d[, ok, drop = FALSE]                       # drop constants
   }
   d
 }
 
-# Compute pairwise Spearman correlations with BH FDR adjustment.
-# Returns a sorted tibble (largest |rho| first by default).
+# Pairwise Spearman with BH FDR; returns tidy tibble sorted by |rho|
 spearman_table <- function(df, vars, log10_vars = character(),
                            sort_by = c("abs_r","p","r")) {
   d <- make_pairs_df(df, keep = vars, log10_vars = log10_vars)
@@ -276,10 +278,7 @@ spearman_table <- function(df, vars, log10_vars = character(),
   tab[ord, ]
 }
 
-# Small wrapper around base::pairs() with:
-#  - lower: semi-transparent points
-#  - upper: cell shading by rho
-#  - diag:  normalized density curves
+# Custom pairs-plot (lower: points; upper: shaded by rho; diag: densities)
 pairs_plot <- function(df, vars, log10_vars = character(),
                        group = NULL, main = "") {
   d <- make_pairs_df(df, keep = vars, log10_vars = log10_vars)
@@ -320,8 +319,7 @@ pairs_plot <- function(df, vars, log10_vars = character(),
   invisible(NULL)
 }
 
-# Global heatmap -----------------------------------------------
-# Spearman correlation matrix on all numeric, non-constant columns
+# --- Global Spearman correlation heatmap on all numeric, non-constant ----------
 num <- data %>% select(where(is.numeric)) %>% select(where(~ sd(., na.rm = TRUE) > 0))
 M <- cor(num, method = "spearman", use = "pairwise.complete.obs")
 cat("\n--- Global Spearman correlation heatmap (printed) ---\n")
@@ -329,27 +327,21 @@ corrplot(M, method = "color", type = "upper", diag = FALSE,
          addCoef.col = "black", number.digits = 2, number.cex = 0.5,
          tl.cex = 0.7, order = "hclust")
 
-# GE vs blocks ---------------------------------------------------
-# For each block print a pairs plot and the top correlations table.
+# --- GE vs blocks: pairplots + top correlations ----------------
 run_block <- function(df, left, right, log_vars, prefix, group = NULL) {
   title <- gsub("_", " ", toupper(prefix))
   cat("\n--- Pairplot:", title, "---\n")
   pairs_plot(df, vars = c(left, right), log10_vars = log_vars, group = group, main = title)
-  
   tab <- spearman_table(df, vars = c(left, right), log10_vars = log_vars, sort_by = "abs_r")
   cat("\nTop correlations (|rho|):", title, "\n"); print(head(tab, 20))
   invisible(tab)
 }
-
-# Run the four blocks against GE
 tab_GE_horm <- run_block(data, vars_outcome, vars_hormones, log_skewed, "GE_hormones")
 tab_GE_gly  <- run_block(data, vars_outcome, vars_gly,      log_skewed, "GE_glycemia")
 tab_GE_ins  <- run_block(data, vars_outcome, vars_insulin,  log_skewed, "GE_insulin")
 tab_GE_demo <- run_block(data, vars_outcome, vars_demo,     log_skewed, "GE_demographics")
 
-# Dotplot of GE correlations -----------------------------------
-# Build a tidy frame of rho & FDR for each variable versus GE, label block,
-# order by |rho|, and then plot as a faceted dotplot.
+# --- GE correlation dot-plot summary: rho + FDR per block -------
 cat("\n--- GE correlations summary (printed) ---\n")
 vars_all <- unique(c(vars_hormones, vars_gly, vars_insulin, vars_demo))
 d_ge <- make_pairs_df(data, keep = c(vars_outcome, vars_all), log10_vars = log_skewed)
@@ -373,18 +365,17 @@ res <- lapply(vn, function(v) {
   arrange(desc(abs(rho)))
 print(head(res, 20))
 
-# Reorder variables *within each facet* by |rho| so lists read top-to-bottom by strength.
+# Reorder within each facet by |rho| for a clean top-to-bottom reading
 res <- res %>%
   dplyr::group_by(block) %>%
   dplyr::mutate(var = forcats::fct_reorder(var, abs(rho))) %>%
   dplyr::ungroup()
 
-# Facet by rows and free the y scale so each facet only shows its own variables (no big gaps).
 p_dot <- ggplot(res, aes(x = var, y = rho, shape = padj < 0.05)) +
   geom_hline(yintercept = 0, linewidth = 0.4) +
   geom_point(size = 2.5) +
   coord_flip() +
-  facet_grid(block ~ ., scales = "free_y", space = "free_y") +  # <- changed
+  facet_grid(block ~ ., scales = "free_y", space = "free_y") +
   scale_shape_manual(values = c(16, 17),
                      labels = c("FDR ≥ 0.05", "FDR < 0.05"), name = NULL) +
   labs(title = "Spearman correlation with GE",
@@ -394,8 +385,7 @@ p_dot <- ggplot(res, aes(x = var, y = rho, shape = padj < 0.05)) +
         strip.text = element_text(face = "bold"))
 print(p_dot)
 
-# Top-4 scatters (safe) ----------------------------------------
-# Quick visual checks for the four strongest |rho| vs GE, with LOESS trend and rho annotation.
+# --- Top-4 scatter checks with LOESS trend and rho annotation ---
 top4 <- res %>%
   arrange(desc(abs(rho))) %>%
   filter(var %in% names(data)) %>%
@@ -407,7 +397,6 @@ plot_scatter <- function(df, xvar, yvar = "GE") {
   y <- suppressWarnings(as.numeric(df[[yvar]]))
   ok <- is.finite(x) & is.finite(y)
   r  <- if (sum(ok) >= 3L) suppressWarnings(cor(x[ok], y[ok], method = "spearman")) else NA_real_
-  
   ggplot(data.frame(x = x, y = y), aes(x, y)) +
     geom_point(alpha = 0.35, size = 1) +
     geom_smooth(method = "loess", se = TRUE, linewidth = 0.6) +
@@ -419,25 +408,25 @@ plot_scatter <- function(df, xvar, yvar = "GE") {
 if (length(top4) >= 4) {
   p1 <- plot_scatter(data, top4[1]); p2 <- plot_scatter(data, top4[2])
   p3 <- plot_scatter(data, top4[3]); p4 <- plot_scatter(data, top4[4])
-  if (HAS_PATCHWORK) {
-    print((p1 | p2) / (p3 | p4))
-  } else { print(p1); print(p2); print(p3); print(p4) }
+  print((p1 | p2) / (p3 | p4))   # use patchwork grid
+} else {
+  for (v in top4) print(plot_scatter(data, v))
 }
 
 # ================================================================
-# PART C — GE MODELLING
+# PART C — MODELLING GE
 # ================================================================
+# Strategy:
+#   1) Baseline clinical covariates (M0).
+#   2) Add glycaemia/insulin + hormones (M1).
+#   3) Use LASSO (with baseline unpenalized) to pick a parsimonious set → refit OLS (Mfinal).
+#   4) Robust inference (HC3), diagnostics, CV performance, calibration, partial effects.
 
-# Choose 1 representative per correlated block to avoid redundancy / collinearity
-# - Glycaemia: HbA1c (longer-term exposure) instead of GlucoseFasting (point-in-time)
-# - Insulin axis: InsulinFasting (level) instead of MatsudaIdx (sensitivity)
-#   Using one per block reduces multicollinearity and makes effects interpretable.
-gly_marker <- "HbA1c"          # or "GlucoseFasting"
-ins_marker <- "InsulinFasting" # or "MatsudaIdx"
+# Choose representatives for correlated blocks (helps interpretability)
+gly_marker <- "HbA1c"          # representative of glycaemia (long-term)
+ins_marker <- "InsulinFasting" # representative of insulin axis (level)
 
-# Transform: log-transform skewed hormones; convert 0/1 columns to factors for modelling
-# - Log transforms help linearize relationships and stabilize variance.
-# - Factors ensure the model treats binaries as categorical with explicit contrasts.
+# Transform skewed hormones for modelling (natural log) and cast binaries to factors
 dat <- data %>%
   mutate(
     GLP1_ln    = ifelse(GLP1    > 0, log(GLP1),    NA_real_),
@@ -448,23 +437,17 @@ dat <- data %>%
     DiabetesComplications = if ("DiabetesComplications" %in% names(.)) factor(DiabetesComplications) else NULL
   )
 
-# Define model terms
-# - base_covars are always included (clinical covariate adjustment).
-# - extra_core adds one representative from glycaemia and insulin blocks.
-# - hormones_ln includes both logged hormones and those kept on original scale.
+# Define modelling sets
 base_covars <- c("Age","Sex","BMI","Metformin")
 extra_core  <- c(gly_marker, ins_marker)
 hormones_ln <- c("GLP1_ln","Ghrelin_ln","Amylin_ln","Gastrin","CCK","Glucagon","PYY")
 
-# Build modelling frame and drop rows with any missing among selected vars
-# NOTE: This is a complete-case analysis (listwise deletion). If missingness is
-# non-random, consider imputation in future iterations.
+# Build modelling frame and drop rows missing any included predictor (complete-case)
+# NOTE: If missingness is not MCAR, consider multiple imputation in future work.
 all_vars <- c("GE", base_covars, extra_core, hormones_ln)
 df <- dat %>% select(any_of(all_vars)) %>% tidyr::drop_na()
 
-# HC3-robust coefficient table helper (β, SE, z, p, CI)
-# - Uses sandwich::vcovHC(type = "HC3") for heteroskedasticity-robust SEs.
-# - coeftest() + robust vcov → robust Wald tests.
+# Robust coefficient table helper (HC3 SEs + 95% CI)
 robust_table <- function(fit) {
   ct <- coeftest(fit, vcov = vcovHC(fit, type = "HC3"))
   tb <- data.frame(term = rownames(ct), estimate = ct[,1], std.error = ct[,2],
@@ -474,105 +457,77 @@ robust_table <- function(fit) {
   tb
 }
 
-# M0 and M1 ------------------------------------------------------
-# M0: baseline adjustment set; M1: baseline + glycaemia + insulin + hormones
-# - M0 is your clinical baseline.
-# - M1 explores incremental explanatory power from biomarkers.
+# --- M0 (baseline) and M1 (extended) ----------------------------
 form_M0 <- as.formula(paste("GE ~", paste(base_covars, collapse = " + ")))
 form_M1 <- as.formula(paste("GE ~", paste(c(base_covars, extra_core, hormones_ln), collapse = " + ")))
 
 M0 <- lm(form_M0, data = df)
 M1 <- lm(form_M1, data = df)
 
-# Compact model summaries (glance) + robust coefficient table for M0
 cat("\n=== Baseline model (M0) ===\n"); print(glance(M0)); cat("\n"); print(robust_table(M0))
 cat("\n=== Extended model (M1) ===\n"); print(glance(M1))
 
-# Multicollinearity check on M1.
-# - High VIF (> ~5–10) flags collinearity risks; interpret with care if large.
-# - tryCatch guard because vif() can error for singular fits.
-VIF_M1 <- tryCatch(car::vif(M1), error = function(e) NA)  # VIF can error if singular
+# Multicollinearity check on M1 (VIF > ~5–10 indicates potential concern)
+VIF_M1 <- tryCatch(car::vif(M1), error = function(e) NA)
 if (!all(is.na(VIF_M1))) { cat("\nVIF (M1):\n"); print(VIF_M1) }
 
-# Selection: LASSO (baseline unpenalized) or stepwise fallback ---
-# If glmnet is available, use CV LASSO while forcing baseline covariates to remain.
-# Rationale:
-# - LASSO shrinks/zeros weak predictors → sparse, more generalizable model.
-# - We *do not* penalize baseline covariates so they always stay (clinical prior).
-if (HAS_GLMNET) {
-  library(glmnet)
-  
-  # Create a model matrix for all predictors (no intercept for X);
-  # keep a mapping (assign) from columns back to original terms for reporting.
-  all_preds <- attr(terms(M1), "term.labels")
-  Terms     <- terms(reformulate(all_preds))
-  MM        <- model.matrix(Terms, data = df)     # includes intercept
-  assignVec <- attr(MM, "assign")                 # map matrix columns -> term index
-  termLabs  <- attr(Terms, "term.labels")
-  
-  X       <- MM[, -1, drop = FALSE]               # drop intercept column
-  assignX <- assignVec[-1]
-  
-  # Penalty factor: 0 = never penalize (keep); 1 = penalize normally.
-  # Here we set pf=0 for any column associated with baseline covariates.
-  pf <- rep(1, ncol(X)); names(pf) <- colnames(X)
-  base_idx <- which(termLabs %in% base_covars)
-  pf[assignX %in% base_idx] <- 0                   # keep baseline terms
-  
-  # Cross-validated LASSO (alpha=1). 10-fold CV balances bias/variance.
-  set.seed(123)
-  cvfit <- cv.glmnet(x = X, y = df$GE, alpha = 1, family = "gaussian",
-                     nfolds = 10, penalty.factor = pf)
-  cat("\n=== LASSO CV curve (printed) ===\n"); plot(cvfit)
-  
-  # Use the 1-SE rule (lambda.1se) to prefer a simpler model with similar CV error.
-  # Map the non-zero *columns* back to original term names using the 'assign' index.
-  lam1se   <- cvfit$lambda.1se
-  beta     <- as.numeric(coef(cvfit, s = lam1se))[-1]
-  keep_cols <- which(beta != 0)
-  sel_terms <- unique(termLabs[ assignX[keep_cols] ])
-  cat("\nSelected (lambda_1se):\n"); print(sel_terms)
-  
-  # Refit a plain OLS on the selected set (plus baseline) to get unbiased β & robust SEs.
-  final_terms <- unique(c(base_covars, sel_terms))
-  form_final  <- reformulate(final_terms, response = "GE")
-  Mfinal      <- lm(form_final, data = df)
-  
-} else {
-  # If glmnet not installed: stepwise AIC, with baseline forced in the lower scope.
-  # Not as stable as LASSO but provides a reasonable fallback.
-  library(MASS)
-  scope  <- list(lower = reformulate(base_covars, response = "GE"), upper = form_M1)
-  Mfinal <- stepAIC(M1, scope = scope, direction = "both", trace = FALSE)
-}
+# --- LASSO selection with baseline unpenalized ------------------
+# Build model matrix for all predictors, keep mapping to original terms
+all_preds <- attr(terms(M1), "term.labels")
+Terms     <- terms(reformulate(all_preds))
+MM        <- model.matrix(Terms, data = df)      # includes intercept
+assignVec <- attr(MM, "assign")                  # each column's term index
+termLabs  <- attr(Terms, "term.labels")
 
-# Final model outputs -------------------------------------------
-# - glance(): overall fit metrics (R^2, adj R^2, AIC, etc.)
-# - robust_table(): HC3-robust β, SE, p, and 95% CI for inference under heteroskedasticity
+X       <- MM[, -1, drop = FALSE]                # drop intercept column
+assignX <- assignVec[-1]
+
+# Penalty factors: 0 = never penalize (force keep), 1 = normal penalty
+pf <- rep(1, ncol(X)); names(pf) <- colnames(X)
+base_idx <- which(termLabs %in% base_covars)
+pf[assignX %in% base_idx] <- 0                   # keep baseline terms regardless of lambda
+
+set.seed(123)
+cvfit <- cv.glmnet(x = X, y = df$GE, alpha = 1, family = "gaussian",
+                   nfolds = 10, penalty.factor = pf)
+cat("\n=== LASSO CV curve (printed) ===\n"); plot(cvfit)
+
+# Use 1-SE rule (simpler model with comparable CV error)
+lam1se    <- cvfit$lambda.1se
+beta      <- as.numeric(coef(cvfit, s = lam1se))[-1]
+keep_cols <- which(beta != 0)
+sel_terms <- unique(termLabs[ assignX[keep_cols] ])
+cat("\nSelected (lambda_1se):\n"); print(sel_terms)
+
+# Final OLS refit for unbiased coefficients + robust inference
+final_terms <- unique(c(base_covars, sel_terms))
+form_final  <- reformulate(final_terms, response = "GE")
+Mfinal      <- lm(form_final, data = df)
+
+# --- Final model outputs ----------------------------------------
 cat("\n=== Final model (Mfinal) — glance ===\n"); print(glance(Mfinal))
 cat("\n=== Final model (Mfinal) — robust coefficients ===\n"); print(robust_table(Mfinal))
 
-# Standard diagnostic panel (residuals vs fitted, QQ, scale-location, Cook's)
-# - Quick visual check for linearity, normality of residuals, equal variance, and influence.
+# Diagnostics: residual patterns, QQ, scale-location, leverage/Cook's
 cat("\n=== Mfinal diagnostics (printed) ===\n")
 op <- par(mfrow = c(2,2)); on.exit(par(op), add = TRUE); plot(Mfinal)
 
-# Visualisations for models -------------------------------------
-# Forest plot of robust CIs (excludes intercept)
-# - Helps quickly see direction, magnitude, and uncertainty of each effect.
+# --- Coefficient forest (robust 95% CI) -------------------------
 coef_final <- robust_table(Mfinal) %>%
   filter(term != "(Intercept)") %>%
   mutate(term = fct_reorder(term, estimate))
 p_coef <- ggplot(coef_final, aes(x = term, y = estimate)) +
   geom_hline(yintercept = 0, linetype = 2, linewidth = 0.4) +
   geom_pointrange(aes(ymin = conf.low, ymax = conf.high), size = 0.3) +
-  coord_flip() + labs(title = "Final model coefficients (HC3 robust 95% CI)", x = NULL, y = "beta")
+  coord_flip() +
+  labs(title = "Final model coefficients (HC3 robust 95% CI)", x = NULL, y = "beta")
 print(p_coef)
 
-# ---- Cross-validated predictions helpers ----
-# cv_predict_lm(): manual K-fold CV for a given formula and data
-# perf_metrics(): RMSE and pseudo-R^2 (explained variance) for obs vs pred
-# plot_obs_pred(): scatter of predicted vs observed with identity line and metrics
+# ================================================================
+# PERFORMANCE & INTERPRETATION
+# ================================================================
+
+# K-fold CV helpers and observed-vs-predicted plotting
 cv_predict_lm <- function(formula, data, k = 10, seed = 123) {
   set.seed(seed)
   n <- nrow(data); fold <- sample(rep(1:k, length.out = n))
@@ -599,7 +554,6 @@ plot_obs_pred <- function(obs, pred, title, subtitle) {
 }
 
 # Compare in-sample vs 10-fold CV for M0 and Mfinal
-# - In-sample: fit quality; CV: generalization performance.
 df$.pred_M0_in     <- fitted(M0)
 df$.pred_M0_cv     <- cv_predict_lm(form_M0, df)
 df$.pred_Mfinal_in <- fitted(Mfinal)
@@ -609,12 +563,9 @@ p1 <- plot_obs_pred(df$GE, df$.pred_M0_in,     "Baseline (M0)",        "In-sampl
 p2 <- plot_obs_pred(df$GE, df$.pred_M0_cv,     "Baseline (M0)",        "10-fold CV")
 p3 <- plot_obs_pred(df$GE, df$.pred_Mfinal_in, "Final model (Mfinal)", "In-sample")
 p4 <- plot_obs_pred(df$GE, df$.pred_Mfinal_cv, "Final model (Mfinal)", "10-fold CV")
+print((p1 | p2) / (p3 | p4))
 
-# Show either as a 2x2 patchwork (if available) or print sequentially
-if (HAS_PATCHWORK) { print((p1 | p2) / (p3 | p4)) } else { print(p1); print(p2); print(p3); print(p4) }
-
-# Calibration curve: average observed vs predicted GE in deciles of prediction
-# - If well-calibrated, points fall near the 45° line; deviations show bias.
+# Calibration curve: mean observed vs mean predicted within deciles
 cal_df <- tibble(obs = df$GE, pred = df$.pred_Mfinal_cv) %>%
   tidyr::drop_na() %>%
   mutate(bin = ntile(pred, 10)) %>%
@@ -625,10 +576,8 @@ p_cal <- ggplot(cal_df, aes(pred, obs)) +
        x = "Mean predicted GE (by decile)", y = "Mean observed GE")
 print(p_cal)
 
-# Partial effects (visreg if available; else added-variable plots) ----------------
-# Standardize numeric predictors to compare coefficients, pick the top 4 (by |beta|).
-# - Standardization makes β roughly comparable across scales.
-# - We exclude Sex/Metformin from "top" selection because their β are on a dummy scale.
+# ---- Adjusted (partial) effects for top standardized predictors ---------------
+# Standardize numerics for comparability; pick top 4 by |beta| (excluding dummies)
 std_df <- df
 num_vars <- names(std_df)[sapply(std_df, is.numeric)]
 num_vars <- setdiff(num_vars, "GE")
@@ -638,27 +587,13 @@ M_std <- lm(formula(Mfinal), data = std_df)
 std_tab <- tidy(M_std) %>% filter(term != "(Intercept)") %>% arrange(desc(abs(estimate)))
 top4 <- head(std_tab$term[!grepl("^Sex|^Metformin", std_tab$term)], 4)
 
-# visreg produces adjusted (partial) effect plots for each predictor while holding others
-# at typical values—great for interpretation and detecting nonlinearity.
-if (HAS_VISREG) {
-  library(visreg)
-  ps <- lapply(top4, function(v) {
-    visreg(Mfinal, v, gg = TRUE, overlay = FALSE, rug = TRUE) +
-      labs(title = paste("Adjusted effect:", v), x = v, y = "GE (partial)")
-  })
-  if (HAS_PATCHWORK) { print(wrap_plots(ps, ncol = 2)) } else { for (p in ps) print(p) }
-} else {
-  # Fallback if visreg is not available: classic added-variable plots
-  # - Shows residual GE vs residual predictor after regressing out all others.
-  cat("\n(visreg not installed) Showing added-variable plots via car::avPlots\n")
-  car::avPlots(Mfinal, terms = top4)
-}
+ps <- lapply(top4, function(v) {
+  visreg(Mfinal, v, gg = TRUE, overlay = FALSE, rug = TRUE) +
+    labs(title = paste("Adjusted effect:", v), x = v, y = "GE (partial)")
+})
+print(wrap_plots(ps, ncol = 2))
 
-# Reporting add-ons ------------------------------------------------------------
-# Compare models by adjusted R^2, AIC/BIC, and both in-sample & CV RMSE.
-# - adj R^2 adjusts for number of predictors.
-# - AIC/BIC penalize model complexity (BIC penalizes more).
-# - CV RMSE is the key out-of-sample error metric.
+# ---- Compact model comparison (report-ready table) --------------
 rmse <- function(y, yhat) sqrt(mean((y - yhat)^2, na.rm = TRUE))
 cv_rmse_lm <- function(formula, data, K = 10, seed = 1) {
   set.seed(seed)
@@ -675,7 +610,6 @@ cv_rmse_lm <- function(formula, data, K = 10, seed = 1) {
   mean(errs)
 }
 
-# Summarize M0 vs Mfinal across metrics
 stopifnot(exists("M0"), exists("Mfinal"))
 df_final <- model.frame(Mfinal)
 tab_models <- tibble::tibble(
@@ -689,10 +623,8 @@ tab_models <- tibble::tibble(
 )
 cat("\n=== Model comparison (M0 vs Mfinal) ===\n"); print(tab_models)
 
-# Added-variable plots (manual) for selected hormones ---------------------------
-# Construct partial-regression plots by regressing out "others" from Y and X,
-# then plotting residuals ry vs rx with a linear fit.
-# - This reproduces the classical "added-variable" (a.k.a. partial regression) plot.
+# ---- Added-variable (partial regression) plots for selected hormones ----------
+# Visual cross-check for unique contribution of hormone terms in Mfinal.
 avp <- function(fit, term, data, title_prefix = NULL) {
   all_terms <- attr(terms(fit), "term.labels"); stopifnot(term %in% all_terms)
   others <- setdiff(all_terms, term)
@@ -713,6 +645,10 @@ candidate_horms <- c("GLP1_ln","Ghrelin_ln","Amylin_ln","Gastrin","CCK","PYY","G
 av_terms <- intersect(sel_terms, candidate_horms)
 if (length(av_terms)) {
   aps <- lapply(av_terms, function(trm) avp(Mfinal, trm, df_final, title_prefix = "Added-variable: "))
-  if (HAS_PATCHWORK) { print(wrap_plots(aps, ncol = 2)) } else { for (p in aps) print(p) }
+  print(wrap_plots(aps, ncol = 2))
 }
+
+# ============================== END TASK 1 =============================
+
+
 
