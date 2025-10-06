@@ -10,25 +10,25 @@ table(data$TRT)
 
 # Histograms
 non_treated = data$LeeIdx[data$TRT == 0]
-plot(hist(non_treated), xlim = c(310,350), main = "Histogram of Control Group")
+plot(hist(non_treated), col = "steelblue", xlim = c(310,350), main = "Histogram of Control Group", xlab = "Lee index")
 
 treated = data$LeeIdx[data$TRT == 1]
-plot(hist(treated), xlim = c(310,350), main = "Histogram of DiGeMon-123 treated Group")
+plot(hist(treated), col = "lightsalmon", xlim = c(310,350), main = "Histogram of DiGeMon-123 Treated Group", xlab = "Lee index")
 
 
 # Boxplot
-boxplot(LeeIdx ~ TRT, data = data, names = c("Control", "Treatment"))
+boxplot(LeeIdx ~ TRT, data = data, names = c("Control", "Treatment"), col = c("steelblue", "lightsalmon"))
 
 
 # Scatterplot + correlation for treated group
 treated_all = data[data$TRT == 1, c("LeeIdx", "Time")]
-plot(treated_all$Time, treated_all$LeeIdx, main = "Scatterplot of Treated Group", pch = 16, xlab = "Time (minutes)", ylab = "Lee Index")
+plot(treated_all$Time, treated_all$LeeIdx, col = "lightsalmon", main = "Scatterplot of Treated Group", pch = 16, xlab = "Time (minutes)", ylab = "Lee Index")
 cor(treated_all$Time, treated_all$LeeIdx) # Weak negative correlation -0.4129381
 
 # Scatterplot + correlation for control group
 non_treated_all = data[data$TRT == 0, c("LeeIdx", "Time")]
-plot(non_treated_all$Time, non_treated_all$LeeIdx, main = "Scatterplot of Control Group", pch = 16, xlab = "Time (minutes)", ylab = "Volume of Gastric Content (%)")
-cor(non_treated_all$Time, non_treated_all$LeeIdx)
+plot(non_treated_all$Time, non_treated_all$LeeIdx, col = "steelblue", main = "Scatterplot of Control Group", pch = 16, xlab = "Time (minutes)", ylab = "Lee Index")
+cor(non_treated_all$Time, non_treated_all$LeeIdx) # Correlation 0.1526447
 
 
 # ggplot showing LeeIdx vs Time for both groups
@@ -41,6 +41,7 @@ ggplot(data, aes(x = Time, y = LeeIdx, color = TRT_cat)) +
   geom_smooth(method = "lm") +
   labs(title = "Lee index over time for control and treatment groups", 
        x = "Time (weeks)", y = "Lee index") + 
+  scale_color_manual(values = c("Control" = "steelblue", "Treatment" = "lightsalmon")) +
   theme_minimal()
 
 
