@@ -28,6 +28,7 @@ y <- df$GE_fasted
 # Basic scatter plot
 plot(x, y, main = "Gastric Content", xlab = "Time (minutes)", ylab = "Volume of Gastric Content (%)", pch = 19, col = "blue")
 
+# ---- Exponential decay model ----
 
 # Fit the exponential decay model
 # Initial parameter estimates
@@ -35,16 +36,16 @@ start_vals <- list(C0 = max(y), lambda = 0.5)
 start_vals
 
 # Fit the model using nls()
-fit <- nls(y ~ C0 * exp(-lambda * x), data = selected_columns, start = start_vals)
-summary(fit)
+exp_model <- nls(y ~ C0 * exp(-lambda * x), data = selected_columns, start = start_vals)
+summary(exp_model)
 
 
 # Draw curve
 plot(x, y, main = "Exponential Decay Fit for Gastric Content", pch = 16, xlab = "Time (minutes)", ylab = "Volume of Gastric Content (%)")
-curve(predict(fit, newdata = data.frame(x = x)), add = TRUE, col = "red")
+curve(predict(exp_model, newdata = data.frame(x = x)), add = TRUE, col = "red")
 
-prediction = predict(fit, newdata = data.frame(x = x))
-k <- coef(fit)["lambda"] # Extract the slope for time
+prediction = predict(exp_model, newdata = data.frame(x = x))
+k <- coef(exp_model)["lambda"] # Extract the slope for time
 
 
 # Calculate half-life, take the natural logarithm 
@@ -78,22 +79,20 @@ r_squared
 
 # AUC can be used to describe the clearance of materials
 # from the rat's gastric content
-params <- coef(fit)
+params <- coef(exp_model)
 y0 <- params["C0"]
 k <- params["lambda"]
 fitted_fun <- function(t) y0 * exp(-k * t)
-
-#
-
 
 # AUC from t = 0 to t = 60
 auc <- integrate(fitted_fun, lower = 0, upper = 60)$value
 print(auc)
 
-# Linear model with log transformation
+# ---- Linear regression model ----
+
 log_y = log(y)
 plot(x, log_y, main = "Gastric Content", xlab = "Time (minutes)", ylab = "Volume of Gastric Content (%)", pch = 19, col = "blue")
-df
+
 lm_model = lm(log(GE_fasted)~Time, data = df)
 abline(lm_model, col = "red", lwd = 2) # col sets the line color, lwd sets the line width
 lm_model
@@ -106,6 +105,7 @@ t_half <- log(2) / k
 
 # Print result
 print(t_half)
+
 # The half life is 15.67384 minutes
 
 predicted_values <- predict(lm_model)
@@ -128,7 +128,6 @@ summary(lm_model)
 # The r_squared is closer to 1 (it is 0.9832208) which means it
 # is a good fit
 
-
 # Get AUC of model
 fitted_fun <- function(t) y0 * exp(-k * t)
 
@@ -136,8 +135,16 @@ fitted_fun <- function(t) y0 * exp(-k * t)
 auc <- integrate(fitted_fun, lower = 0, upper = 60)$value
 print(auc)
 
+# Compare AIC of model 
+fits <- list(exp = exp_model, lm_fit = lm_model)
+tibble(
+  model = names(fits),
+  AIC = sapply(fits, AIC),
+  BIC = sapply(fits, BIC),
+  RMSE = sapply(fits, function(m) sqrt(mean(resid(m)^2)))
+)
 
-# Compare the fasted and non-fasted plots
+
 library(ggplot2)
 library(pracma)
 data <- read.csv("data/Data_T2.csv")
