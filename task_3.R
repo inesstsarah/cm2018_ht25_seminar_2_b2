@@ -31,10 +31,6 @@ data_3A <- read_csv("Data_T3.csv", show_col_types = FALSE, n_max = 30)
 # Rename columns
 names(data_3A) <- c("ID", "dose", "GE_content")
 
-# Extract data
-dose_3A <- data_3A$dose
-GE_content_3A <- data_3A$GE_content
-
 # Group by dose and calculate mean of GE_content
 data_3A_by_dose <- data_3A %>%
   group_by(dose) %>%
@@ -43,23 +39,22 @@ data_3A_by_dose <- data_3A %>%
 # --- LINEAR REGRESSION --------------------------------------------------------
 
 # Fitting Linear Models (linear regression)
-m_3A <- glm(GE_content_3A ~ dose_3A, 
-            data = data_3A, 
-            family = gaussian(link = "identity"))
+m_3A <- lm(GE_content ~ dose, data = data_3A)
 
 summary(m_3A)
 
-# Solve analytically for the dose that gives 50% and 80% retention
+# Beta values
 b0_3A <- coef(m_3A)[1]   # intercept
 b1_3A <- coef(m_3A)[2]   # slope
 
+# Solve analytically for the dose that gives 50% and 80% retention
 dose_3A_GE50 <- getDoseAtGE(50, b0_3A, b1_3A)
 dose_3A_GE80 <- getDoseAtGE(80, b0_3A, b1_3A)
 
 # --- PLOTS --------------------------------------------------------------------
 
 # Histogram of gastric emptying content
-hist(GE_content_3A,
+hist(data_3A$GE_content,
      main = "Histogram of GE content",
      xlab = "GE content",
      col = "lightblue",
@@ -67,7 +62,7 @@ hist(GE_content_3A,
 title("Part A", outer = TRUE, line = -1)
 
 # Boxplot of GE content by dose
-boxplot(GE_content_3A ~ dose_3A, data = data_3A,
+boxplot(GE_content ~ dose, data = data_3A,
         main = "Boxplot of GE content by dose [mg]",
         xlab = "Dose [mg]",
         ylab = "GE content",
@@ -75,7 +70,7 @@ boxplot(GE_content_3A ~ dose_3A, data = data_3A,
 title("Part A", outer = TRUE, line = -1)
 
 # Scatterplot of dose [mg] vs GE content
-plot(dose_3A, GE_content_3A,
+plot(data_3A$dose, data_3A$GE_content,
      main = "Scatterplot: Dose [mg] vs GE content",
      xlab = "Dose [mg]",
      ylab = "GE content",
@@ -96,12 +91,12 @@ title("Part A", outer = TRUE, line = -1)
 
 # Find min/max for axes so lines fit
 x_min_3A <- 0
-x_max_3A <- max(c(dose_3A, dose_3A_GE80))   # extend to include 80% line
+x_max_3A <- max(c(data_3A$dose, dose_3A_GE80))   # extend to include 80% line
 y_min_3A <- 0
 y_max_3A <- 100
 
 # Plot the dose response data points
-plot(dose_3A, GE_content_3A,
+plot(data_3A$dose, data_3A$GE_content,
      xlab = "Dose [mg]",
      ylab = "Gastric retention (%)",
      main = "Dose–response (linear fit)",
@@ -182,10 +177,6 @@ data_3B <- data_3B[c("ID", "dose", "GE_content")]
 # Combine data_3A and data_3B
 data_3B <- rbind(data_3A, data_3B)
 
-# Extract data
-dose_3B <- data_3B$dose
-GE_content_3B <- data_3B$GE_content
-
 # Quick summary
 summary(data_3B)
 
@@ -197,25 +188,20 @@ data_3B_by_dose <- data_3B %>%
 # --- LINEAR REGRESSION --------------------------------------------------------
 
 # Fitting Linear Models (linear regression)
-m_3B <- glm(GE_content_3B ~ dose_3B, 
-            data = data_3B, 
-            family = gaussian(link = "identity"))
+m_3B <- lm(GE_content ~ dose, data = data_3B)
 
-# Solve analytically for the dose that gives 50% and 80% retention
+# Beta values
 b0_3B <- coef(m_3B)[1]   # intercept
 b1_3B <- coef(m_3B)[2]   # slope
 
+# Solve analytically for the dose that gives 50% and 80% retention
 dose_3B_GE50 <- getDoseAtGE(50, b0_3B, b1_3B)
 dose_3B_GE80 <- getDoseAtGE(80, b0_3B, b1_3B)
-
-# Display dose values
-dose_3B_GE50
-dose_3B_GE80
 
 # --- PLOTS --------------------------------------------------------------------
 
 # Histogram of gastric emptying content
-hist(GE_content_3B,
+hist(data_3B$GE_content,
      main = "Histogram of GE content",
      xlab = "GE content",
      col = "lightblue",
@@ -223,7 +209,7 @@ hist(GE_content_3B,
 title("Part B", outer = TRUE, line = -1)
 
 # Boxplot of GE content by dose
-boxplot(GE_content_3B ~ dose_3B, data = data_3B,
+boxplot(GE_content ~ dose, data = data_3B,
         main = "Boxplot of GE content by dose [mg]",
         xlab = "Dose [mg]",
         ylab = "GE content",
@@ -231,7 +217,7 @@ boxplot(GE_content_3B ~ dose_3B, data = data_3B,
 title("Part B", outer = TRUE, line = -1)
 
 # Scatterplot of dose [mg] vs GE content
-plot(dose_3B, GE_content_3B,
+plot(data_3B$dose, data_3B$GE_content,
      main = "Scatterplot: Dose [mg] vs GE content",
      xlab = "Dose [mg]",
      ylab = "GE content",
@@ -257,7 +243,7 @@ y_min_3B <- 0
 y_max_3B <- 100
 
 # Plot the dose response data points
-plot(dose_3B, GE_content_3B,
+plot(data_3B$dose, data_3B$GE_content,
      xlab = "Dose [mg]",
      ylab = "Gastric retention (%)",
      main = "Dose–response (linear fit)",
