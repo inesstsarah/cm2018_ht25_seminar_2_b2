@@ -19,7 +19,9 @@ library(tidyr)
 
 # Returns the dose at the specified GE_content value, given beta factors
 # (intercept and slope, respectively).
-getDoseAtGE <- function(target_GE, b0, b1) {
+getDoseAtGE <- function(target_GE, model) {
+  b0 <- coef(model)[1]
+  b1 <- coef(model)[2]
   (target_GE - b0) / b1
 }
 
@@ -48,8 +50,8 @@ b0_3A <- coef(m_3A)[1]   # intercept
 b1_3A <- coef(m_3A)[2]   # slope
 
 # Solve analytically for the dose that gives 50% and 80% retention
-dose_3A_GE50 <- getDoseAtGE(50, b0_3A, b1_3A)
-dose_3A_GE80 <- getDoseAtGE(80, b0_3A, b1_3A)
+dose_3A_GE50 <- getDoseAtGE(50, m_3A)
+dose_3A_GE80 <- getDoseAtGE(80, m_3A)
 
 # --- PLOTS --------------------------------------------------------------------
 
@@ -110,6 +112,8 @@ abline(m_3A, col = "black", lwd = 2)
 # Mark the 50% and 80% target lines
 abline(h = 50, col = "red", lty = 2)
 abline(h = 80, col = "blue", lty = 2)
+abline(v = dose_3A_GE50, col = "red", lty = 3)
+abline(v = dose_3A_GE80, col = "blue", lty = 3)
 
 # Mark intersection points
 points(dose_3A_GE50, 50, pch = 19, col = "red")
@@ -147,6 +151,11 @@ title("Part A Residuals", outer = TRUE, line = -1)
 # 1 row, 1 column
 par(mfrow = c(1, 1))
 
+# --- SUMMARY ------------------------------------------------------------------
+
+cat("ED50 =", round(dose_3A_GE50,1), "mg\n")
+cat("ED80 =", round(dose_3A_GE80,1), "mg\n")
+
 
 # PART B =======================================================================
 
@@ -175,7 +184,7 @@ data_3B <- data_3B %>%
 data_3B <- data_3B[c("ID", "dose", "GE_content")]
 
 # Combine data_3A and data_3B
-data_3B <- rbind(data_3A, data_3B)
+data_3B <- bind_rows(data_3A, data_3B)
 
 # Quick summary
 summary(data_3B)
@@ -195,8 +204,8 @@ b0_3B <- coef(m_3B)[1]   # intercept
 b1_3B <- coef(m_3B)[2]   # slope
 
 # Solve analytically for the dose that gives 50% and 80% retention
-dose_3B_GE50 <- getDoseAtGE(50, b0_3B, b1_3B)
-dose_3B_GE80 <- getDoseAtGE(80, b0_3B, b1_3B)
+dose_3B_GE50 <- getDoseAtGE(50, m_3B)
+dose_3B_GE80 <- getDoseAtGE(80, m_3B)
 
 # --- PLOTS --------------------------------------------------------------------
 
@@ -258,6 +267,8 @@ abline(m_3B, col = "green", lwd = 2)
 # Mark the 50% and 80% target lines
 abline(h = 50, col = "red", lty = 2)
 abline(h = 80, col = "blue", lty = 2)
+abline(v = dose_3B_GE50, col = "red", lty = 3)
+abline(v = dose_3B_GE80, col = "blue", lty = 3)
 
 # Mark intersection points
 points(dose_3A_GE50, 50, pch = 19, col = "red")
@@ -296,3 +307,8 @@ title("Part B Residuals", outer = TRUE, line = -1)
 
 # 1 row, 1 column
 par(mfrow = c(1, 1))
+
+# --- SUMMARY ------------------------------------------------------------------
+
+cat("ED50 =", round(dose_3B_GE50,1), "mg\n")
+cat("ED80 =", round(dose_3B_GE80,1), "mg\n")
