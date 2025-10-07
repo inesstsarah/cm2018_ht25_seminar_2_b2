@@ -41,7 +41,7 @@ data_3A_by_dose <- data_3A %>%
 # --- LINEAR REGRESSION --------------------------------------------------------
 
 # Fitting Linear Models (linear regression)
-m_3A <- lm(GE_content ~ dose, data = data_3A)
+m_3A <- glm(GE_content ~ dose, data = data_3A, family = gaussian(link="identity"))
 
 summary(m_3A)
 
@@ -197,7 +197,7 @@ data_3B_by_dose <- data_3B %>%
 # --- LINEAR REGRESSION --------------------------------------------------------
 
 # Fitting Linear Models (linear regression)
-m_3B <- lm(GE_content ~ dose, data = data_3B)
+m_3B <- glm(GE_content ~ dose, data = data_3B, family = gaussian(link="identity"))
 
 # Beta values
 b0_3B <- coef(m_3B)[1]   # intercept
