@@ -71,4 +71,4 @@ dwtest(model) # p-value = 0.6167: residuals are not correlated - good!
 #- Intercept (333.22): This is the estimated Lee index at Time = 0 for the control group (TRT = 0). It serves as the baseline.
 #- TRT (-0.79, p = 0.782): The main effect of treatment is not statistically significant. At Time = 0, treated rats do not differ significantly in Lee index from controls.
 #- Time (0.24, p = 0.433): Time alone does not significantly affect Lee index in the control group. There's no strong evidence that Lee index changes over time without treatment.
-#- TRT:Time (-1.11, p = 0.012): This is the key finding. The interaction between treatment and time is statistically significant. It suggests that Lee index decreases over time in the treated group, at a rate of approximately 1.11 units per week more than the control group.
+#- TRT:Time (-1.11, p = 0.012): The interaction between treatment and time is statistically significant. It suggests that Lee index decreases over time in the treated group, at a rate of approximately 1.11 units per week more than the control group.
